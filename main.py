@@ -13,6 +13,7 @@ from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 import argparse
 import csv
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
 
@@ -31,7 +32,7 @@ OPENAI_MODEL = "gpt-3.5-turbo"
 KEYWORDS = ["RECHNUNG", "INVOICE", "BELEG"]
 START_DATE = "2023/01/01"  # format: YYYY/MM/DD or None to use TIMEFRAME
 TIMEFRAME = "1y" # options: 1d, 7d, 30d, 1y etc.
-CATEGORIES = ["Travel", "Utilities", "Software", "Office Supplies", "Food", "Other"]
+CATEGORIES = ["Travel", "Utilities", "Software", "Hardware" "Office Supplies", "Food", "Other"]
 
 if USE_OPENAI_KEY:
     openai.api_key = OPENAI_API_KEY
@@ -264,16 +265,23 @@ def main():
 
             links = extract_invoice_links_with_ollama(service, msg['id'])
             if links:
-                success = False
-                for link in links:
-                    file_path_from_link = download_pdf_from_url(link, DOWNLOAD_DIR, subject, msg['id'])
+                def process_link(link, subject, message_id):
+                    file_path_from_link = download_pdf_from_url(link, DOWNLOAD_DIR, subject, message_id)
                     if file_path_from_link:
-                        success = True
                         text = extract_text_from_pdf(file_path_from_link)
                         print(f"[i] Categorizing file: {file_path_from_link}")
                         print(f"[i] Extracted text preview: {text[:100]}...")
                         category = categorize_invoice(text)
                         sort_file_to_category(file_path_from_link, category)
+                        return True
+                    return False
+
+                success = False
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    futures = [executor.submit(process_link, link, subject, msg['id']) for link in links]
+                    for future in as_completed(futures):
+                        if future.result():
+                            success = True
                 if not success:
                     print("[!] All extracted links failed to download.")
 
