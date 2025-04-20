@@ -214,6 +214,32 @@ def download_pdf_from_url(url, save_dir, subject=None, message_id=None):
         print(f"[!] Failed to download {url}: {e}")
         if subject:
             write_to_review_queue(subject, url, str(e), message_id)
+    try:
+        import browser_cookie3
+        print(f"[i] Retrying with browser session cookies for {url}")
+        cj = browser_cookie3.load()
+        response = requests.get(url, cookies=cj, timeout=4)
+        content_type = response.headers.get('content-type', '')
+        if response.content.strip() and content_type.startswith('application/pdf'):
+            filename = os.path.basename(url.split("?")[0])
+            filepath = os.path.join(save_dir, filename)
+            base, ext = os.path.splitext(filepath)
+            counter = 1
+            while os.path.exists(filepath):
+                filepath = f"{base}_{counter}{ext}"
+                counter += 1
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            print(f"[✓] Downloaded using session cookies: {filepath}")
+            return filepath
+        else:
+            print(f"[!] Still not a valid PDF. Content-Type: {content_type}")
+            if subject:
+                write_to_review_queue(subject, url, f"Unexpected content-type (cookies): {content_type}", message_id)
+    except Exception as e2:
+        print(f"[!] Retry with browser cookies failed: {e2}")
+        if subject:
+            write_to_review_queue(subject, url, f"Cookie retry failed: {e2}", message_id)
     return None
 
 # -------------- Categorize Invoice --------------
