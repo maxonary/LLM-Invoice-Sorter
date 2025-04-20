@@ -1,0 +1,15 @@
+[project]
+name = "llm-invoice-sorter"
+version = "0.1.0"
+description = "Gmail Integration with local LLM to sort invoices into categories"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dotenv>=0.9.9",
+    "google-api-python-client>=2.167.0",
+    "google-auth-httplib2>=0.2.0",
+    "google-auth-oauthlib>=1.2.1",
+    "ollama>=0.4.8",
+    "openai>=1.75.0",
+    "pymupdf>=1.25.5",
+]
