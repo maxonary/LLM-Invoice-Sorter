@@ -40,7 +40,7 @@ OPENAI_MODEL = "gpt-3.5-turbo"
 KEYWORDS = ["RECHNUNG", "INVOICE", "BELEG"]
 START_DATE = "2023/01/01"  # format: YYYY/MM/DD or None to use TIMEFRAME
 TIMEFRAME = "1y" # options: 1d, 7d, 30d, 1y etc.
-CATEGORIES = ["Travel", "Utilities", "Software", "Hardware" "Office Supplies", "Food", "Other"]
+CATEGORIES = ["Travel", "Utilities", "Software", "Hardware" "Office Supplies", "Food", "Lifestyle", "Other"]
 BLACKLISTED_SENDERS = [
     "noreply@paypal.com",
     "service@paypal.de",
@@ -55,6 +55,20 @@ if USE_OPENAI_KEY:
 
 def write_to_review_queue(subject, url, reason, message_id=None):
     file_path = "review_queue.csv"
+    entry = (subject.strip(), url.strip())
+
+    existing_entries = set()
+    if os.path.exists(file_path):
+        with open(file_path, newline="", encoding="utf-8") as file:
+            reader = csv.reader(file)
+            next(reader, None)
+            for row in reader:
+                if len(row) >= 2:
+                    existing_entries.add((row[0].strip(), row[1].strip()))
+
+    if entry in existing_entries:
+        return  # Avoid duplicates
+
     file_exists = os.path.exists(file_path)
     with open(file_path, mode="a", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
