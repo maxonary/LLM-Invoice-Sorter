@@ -76,9 +76,23 @@ def gmail_authenticate():
 
 # -------------- Gmail Message Search --------------
 def search_messages(service, query):
-    result = service.users().messages().list(userId='me', q=query).execute()
-    messages = result.get('messages', [])
-    return messages
+    all_messages = []
+    next_page_token = None
+
+    while True:
+        response = service.users().messages().list(
+            userId='me',
+            q=query,
+            pageToken=next_page_token
+        ).execute()
+
+        all_messages.extend(response.get('messages', []))
+        next_page_token = response.get('nextPageToken')
+
+        if not next_page_token:
+            break
+
+    return all_messages
 
 # -------------- Download PDF Attachments --------------
 def download_attachments(service, message_id, save_dir):
