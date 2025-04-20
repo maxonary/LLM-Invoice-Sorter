@@ -41,6 +41,14 @@ KEYWORDS = ["RECHNUNG", "INVOICE", "BELEG"]
 START_DATE = "2023/01/01"  # format: YYYY/MM/DD or None to use TIMEFRAME
 TIMEFRAME = "1y" # options: 1d, 7d, 30d, 1y etc.
 CATEGORIES = ["Travel", "Utilities", "Software", "Hardware" "Office Supplies", "Food", "Other"]
+BLACKLISTED_SENDERS = [
+    "noreply@paypal.com",
+    "service@paypal.de",
+    "no-reply@payments.google.com",
+    "noreply@accounts.google.com",
+    "notification@facebookmail.com",
+    "noreply@apple.com"
+]
 
 if USE_OPENAI_KEY:
     openai.api_key = OPENAI_API_KEY
@@ -280,6 +288,14 @@ def main():
                 if header['name'] == 'Subject':
                     subject = header['value']
                     break
+            sender = ""
+            for header in full_message['payload'].get('headers', []):
+                if header['name'].lower() == 'from':
+                    sender = header['value']
+                    break
+            if any(blacklisted in sender for blacklisted in BLACKLISTED_SENDERS):
+                print(f"[→] Skipping blacklisted sender: {sender}")
+                continue
             print(f"\n--- Processing email: {subject} ---")
 
             for file_path in download_attachments(service, msg['id'], DOWNLOAD_DIR):
