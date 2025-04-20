@@ -172,3 +172,18 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Credentials
+credentials.json
+token.pickle
+
+# Private Folders
+temp_invoices/
+Invoices/
+review_queue.csv
+
+# MacOS Files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
