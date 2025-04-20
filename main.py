@@ -15,6 +15,14 @@ import argparse
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+def load_reviewed_ids(file_path="review_queue.csv"):
+    if not os.path.exists(file_path):
+        return set()
+    with open(file_path, newline="", encoding="utf-8") as file:
+        reader = csv.reader(file)
+        next(reader, None)  # skip header
+        return {row[3].split('/')[-1] for row in reader if len(row) > 3 and "mail.google.com" in row[3]}
+
 load_dotenv()
 
 # -------------- Config --------------
@@ -236,6 +244,7 @@ def main():
     parser.add_argument('--no-gmail', action='store_true', help='Skip Gmail scanning and only process local PDFs')
     parser.add_argument('--gmail-only', action='store_true', help='Only run Gmail scanning and downloading')
     args = parser.parse_args()
+    reviewed_ids = load_reviewed_ids()
 
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(SORTED_DIR, exist_ok=True)
@@ -248,6 +257,9 @@ def main():
         print(f"[i] Found {len(messages)} matching emails.")
 
         for msg in messages:
+            if msg['id'] in reviewed_ids:
+                print(f"[→] Skipping already reviewed email ID: {msg['id']}")
+                continue
             full_message = service.users().messages().get(userId='me', id=msg['id'], format='full').execute()
             subject = "No Subject"
             for header in full_message['payload'].get('headers', []):
