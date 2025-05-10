@@ -16,4 +16,5 @@ dependencies = [
     "openai>=1.75.0",
     "pandas>=2.2.3",
     "pymupdf>=1.25.5",
+    "watchdog>=6.0.0",
 ]
