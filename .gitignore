@@ -180,7 +180,7 @@ token.pickle
 # Temporary files
 temp_invoices/
 Invoices/
-review_queue.csv
+*.csv
 *.db
 
 # MacOS Files
