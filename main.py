@@ -1,4 +1,5 @@
 import os
+import time
 import pickle
 import base64
 import shutil
@@ -14,6 +15,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 import argparse
 import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 def load_reviewed_ids(file_path="review_queue.csv"):
     if not os.path.exists(file_path):
@@ -289,16 +292,41 @@ def sort_file_to_category(file_path, category, base_dir=SORTED_DIR):
     print(f"[→] Sorted into: {category}")
 
 # -------------- Process Dropped Invoices --------------
+class InvoiceHandler(FileSystemEventHandler):
+    def on_any_event(self, event):
+        # Only process file creation or movement into the directory
+        if event.event_type not in ('created', 'moved'):
+            return
+        if not event.is_directory and event.src_path.lower().endswith('.pdf'):
+            file_path = event.src_path
+            # Check for race condition: file might not exist yet (especially on move ops)
+            if not os.path.exists(file_path):
+                print(f"[!] File does not exist yet: {file_path} (event: {event.event_type})")
+                return
+            fname = os.path.basename(file_path)
+            print(f"[i] Detected file event ({event.event_type}): {fname}")
+            try:
+                text = extract_text_from_pdf(file_path)
+                print(f"[i] Categorizing manual file: {fname}")
+                print(f"[i] Extracted text preview: {text[:100]}...")
+                category = categorize_invoice(text)
+                sort_file_to_category(file_path, category)
+            except Exception as e:
+                print(f"[!] Error processing {fname}: {e}")
+
 def process_dropped_invoices():
-    print(f"\n[i] Processing manually dropped PDFs in {DOWNLOAD_DIR}")
-    for fname in os.listdir(DOWNLOAD_DIR):
-        if fname.lower().endswith('.pdf'):
-            file_path = os.path.join(DOWNLOAD_DIR, fname)
-            text = extract_text_from_pdf(file_path)
-            print(f"[i] Categorizing manual file: {fname}")
-            print(f"[i] Extracted text preview: {text[:100]}...")
-            category = categorize_invoice(text)
-            sort_file_to_category(file_path, category)
+    print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs using watchdog... (Press Ctrl+C to stop)")
+    event_handler = InvoiceHandler()
+    observer = Observer()
+    observer.schedule(event_handler, DOWNLOAD_DIR, recursive=False)
+    observer.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        observer.stop()
+        print("\n[i] Stopped watching for new PDFs.")
+    observer.join()
 
 # -------------- MAIN WORKFLOW --------------
 def main():
