@@ -177,10 +177,11 @@ cython_debug/
 credentials.json
 token.pickle
 
-# Private Folders
+# Temporary files
 temp_invoices/
 Invoices/
-review_queue.csv
+*.csv
+*.db
 
 # MacOS Files
 .DS_Store
