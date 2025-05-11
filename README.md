@@ -13,20 +13,31 @@ uv sync
 Then enable the venv.
 
 ## Running
-`python main.py`  
-Process Gmail + local PDFs (default)
 
-`python main.py --no-gmail`  
-Only categorize PDFs dropped in temp_invoices/
+```bash
+python main.py --scan-gmail
+```
+Scans Gmail and processes invoices found in emails.
 
-`python main.py --gmail-only`  
-Only scan Gmail and attempt to download all invoice PDFs
+```bash
+python main.py --process-local
+```
+Processes and sorts local PDFs dropped into `temp_invoices/`.
 
-`python main.py --rename-by-date`  
-Rename files using the first detected date in the PDF (format: Year-Month-Day).  
-If `--calendar-context` is provided, filenames will include a short event keyword from your calendar (e.g., `2024-06-13-meeting.pdf`).
+```bash
+python main.py --generate-travel-report 2024
+```
+Generates a travel expense report (Reisekosten) for the given year based on categorized PDFs.
 
-You can also use `--rename-by-date` with `--no-gmail` or `--gmail-only` to rename files in the temp_invoices/ folder or the downloaded Gmail PDFs.
+```bash
+python main.py --full-run --calendar-context calendar.ics
+```
+Runs a full workflow: Gmail scan, local invoice processing, and travel report generation with optional calendar context.
+
+```bash
+python main.py --rename-by-date --calendar-context calendar.ics
+```
+Renames files using the first detected date and appends a calendar event keyword if matched.
 
 ## Calendar Context (optional)
 
