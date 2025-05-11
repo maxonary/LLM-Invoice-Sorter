@@ -75,6 +75,7 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
 
     entries_by_date = {}
 
+    # Default to English column names
     for category in ["Travel", "Food"]:
         dir_path = os.path.join(sorted_dir, category)
         if not os.path.isdir(dir_path):
@@ -120,53 +121,81 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
             llm_data = generate_llm_fields(text, category, event)
             type_hint = llm_data.get("type", "").lower()
             entry = {
-                "Datum": date,
-                "Ort": "",
-                "Anlass": llm_data.get("anlass", event or ""),
-                "Dauer in Std.": 10 if category == "Travel" else "",
-                "(Teil-) Anfahrt in km": llm_data.get("distance_km", "") if category == "Travel" else "",
-                "Parken": amount if "park" in type_hint else "",
+                "Date": date,
+                "Location": "",
+                "Purpose": llm_data.get("anlass", event or ""),
+                "Duration (hrs)": 10 if category == "Travel" else "",
+                "Distance (km)": llm_data.get("distance_km", "") if category == "Travel" else "",
+                "Parking": amount if "park" in type_hint else "",
                 "Hotel": amount if "hotel" in type_hint else "",
-                "Zug, Flug, Taxi, ÖPNV": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
-                "Bewirtung": amount if category == "Food" else "",
-                "Gebühr": amount if "fee" in type_hint else "",
-                "Dateipfade": os.path.relpath(path)
+                "Transport": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
+                "Meal": amount if category == "Food" else "",
+                "Fee": amount if "fee" in type_hint else "",
+                "File paths": os.path.relpath(path)
             }
             entries_by_date.setdefault(date, []).append(entry)
             processed_count += 1
 
-    # Filter and link only days that include Travel (based on new structure: use "Dauer in Std." as indicator)
+    # Filter and link only days that include Travel (based on new structure: use "Duration (hrs)" as indicator)
     filtered_entries = {}
     for date, entries in entries_by_date.items():
-        travel_entry = next((e for e in entries if e.get("Dauer in Std.") == 10), None)
+        travel_entry = next((e for e in entries if e.get("Duration (hrs)") == 10), None)
         if not travel_entry:
             print(f"[!] Skipping {date}: no Travel entry found")
             continue
         for entry in entries:
-            if entry.get("Bewirtung"):
-                entry["Anlass"] = travel_entry["Anlass"]
-                entry["Ort"] = travel_entry["Ort"]
+            if entry.get("Meal"):
+                entry["Purpose"] = travel_entry["Purpose"]
+                entry["Location"] = travel_entry["Location"]
         filtered_entries[date] = entries
 
     # Flatten, sort, and write to Excel
     sorted_entries = []
     for date in sorted(filtered_entries.keys()):
-        daily_entries = sorted(filtered_entries[date], key=lambda e: e.get("Dauer in Std.", "") != 10)
+        daily_entries = sorted(filtered_entries[date], key=lambda e: e.get("Duration (hrs)", "") != 10)
         if not daily_entries:
             continue
         merged = daily_entries[0]
         for extra in daily_entries[1:]:
-            for key in ["Parken", "Hotel", "Zug, Flug, Taxi, ÖPNV", "Bewirtung", "Gebühr"]:
+            for key in ["Parking", "Hotel", "Transport", "Meal", "Fee"]:
                 if extra.get(key):
                     try:
                         merged[key] = str(float(merged.get(key, 0)) + float(extra[key]))
                     except:
                         merged[key] = extra[key]
-            merged["Dateipfade"] += f"\n{extra['Dateipfade']}"
+            merged["File paths"] += f"\n{extra['File paths']}"
         sorted_entries.append(merged)
 
     df = pd.DataFrame(sorted_entries)
-    out_path = os.path.join(REPORTS_DIR, f"reisekosten_{year}.xlsx")
+
+    # Language-dependent column renaming and output path
+    language = locals().get('language', 'en')
+    import inspect
+    frame = inspect.currentframe()
+    while frame:
+        if 'language' in frame.f_locals:
+            language = frame.f_locals['language']
+            break
+        frame = frame.f_back
+    if language == 'de':
+        column_mapping = {
+            "Date": "Datum",
+            "Location": "Ort",
+            "Purpose": "Anlass",
+            "Duration (hrs)": "Dauer in Std.",
+            "Distance (km)": "(Teil-) Anfahrt in km",
+            "Parking": "Parken",
+            "Hotel": "Hotel",
+            "Transport": "Zug, Flug, Taxi, ÖPNV",
+            "Meal": "Bewirtung",
+            "Fee": "Gebühr",
+            "File paths": "Dateipfade"
+        }
+        df.rename(columns=column_mapping, inplace=True)
+        out_path = os.path.join(REPORTS_DIR, f"reisekosten_{year}.xlsx")
+    else:
+        out_path = os.path.join(REPORTS_DIR, f"travel_report_{year}_en.xlsx")
+
     df.to_excel(out_path, index=False)
     print(f"[✓] Travel report generated: {out_path}")
     print(f"[✓] Processed entries: {processed_count}")
