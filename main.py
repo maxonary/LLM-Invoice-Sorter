@@ -357,6 +357,26 @@ class InvoiceHandler(FileSystemEventHandler):
             except Exception as e:
                 print(f"[!] Error processing {fname}: {e}")
 
+def clean_up_download_dir():
+    # Move non-PDF files to 'Other'
+    for root, _, files in os.walk(DOWNLOAD_DIR):
+        for file in files:
+            if not file.lower().endswith('.pdf'):
+                src_path = os.path.join(root, file)
+                dest_dir = os.path.join(SORTED_DIR, "Other")
+                os.makedirs(dest_dir, exist_ok=True)
+                dest_path = os.path.join(dest_dir, os.path.basename(file))
+                shutil.move(src_path, dest_path)
+                print(f"[→] Moved non-PDF to Other: {file}")
+
+    # Delete empty folders
+    for root, dirs, _ in os.walk(DOWNLOAD_DIR, topdown=False):
+        for d in dirs:
+            folder_path = os.path.join(root, d)
+            if not os.listdir(folder_path):
+                os.rmdir(folder_path)
+                print(f"[✗] Deleted empty folder: {folder_path}")
+
 def process_dropped_invoices(rename_by_date=False):
     print(f"\n[i] Checking existing files in {DOWNLOAD_DIR} before watching for changes...")
     for root, _, files in os.walk(DOWNLOAD_DIR):
@@ -375,6 +395,8 @@ def process_dropped_invoices(rename_by_date=False):
                     sort_file_to_category(file_path, category, text, rename_by_date)
                 except Exception as e:
                     print(f"[!] Error processing {fname}: {e}")
+    # Clean up after initial scan
+    clean_up_download_dir()
     print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs and folders using watchdog... (Press Ctrl+C to stop)")
     event_handler = InvoiceHandler(rename_by_date=rename_by_date)
     observer = Observer()
@@ -387,7 +409,10 @@ def process_dropped_invoices(rename_by_date=False):
     except KeyboardInterrupt:
         observer.stop()
         print("\n[i] Stopped watching for new PDFs.")
-    observer.join()
+    finally:
+        # Clean up just before observer.join()
+        clean_up_download_dir()
+        observer.join()
 
 # -------------- MAIN WORKFLOW --------------
 def main():
