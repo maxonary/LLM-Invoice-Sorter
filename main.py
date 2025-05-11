@@ -328,16 +328,24 @@ class InvoiceHandler(FileSystemEventHandler):
     def __init__(self, rename_by_date=False):
         super().__init__()
         self.rename_by_date = rename_by_date
+
     def on_any_event(self, event):
-        # Only process file creation or movement into the directory
         if event.event_type not in ('created', 'moved'):
             return
-        if not event.is_directory and event.src_path.lower().endswith('.pdf'):
-            file_path = event.src_path
-            # Check for race condition: file might not exist yet (especially on move ops)
+
+        paths = []
+        if event.is_directory:
+            for root, _, files in os.walk(event.src_path):
+                for file in files:
+                    if file.lower().endswith('.pdf'):
+                        paths.append(os.path.join(root, file))
+        elif event.src_path.lower().endswith('.pdf'):
+            paths.append(event.src_path)
+
+        for file_path in paths:
             if not os.path.exists(file_path):
                 print(f"[!] File does not exist yet: {file_path} (event: {event.event_type})")
-                return
+                continue
             fname = os.path.basename(file_path)
             print(f"[i] Detected file event ({event.event_type}): {fname}")
             try:
@@ -350,10 +358,11 @@ class InvoiceHandler(FileSystemEventHandler):
                 print(f"[!] Error processing {fname}: {e}")
 
 def process_dropped_invoices(rename_by_date=False):
-    print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs using watchdog... (Press Ctrl+C to stop)")
+    print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs and folders using watchdog... (Press Ctrl+C to stop)")
     event_handler = InvoiceHandler(rename_by_date=rename_by_date)
     observer = Observer()
-    observer.schedule(event_handler, DOWNLOAD_DIR, recursive=False)
+    # Set recursive=True to watch new folders dropped into DOWNLOAD_DIR
+    observer.schedule(event_handler, DOWNLOAD_DIR, recursive=True)
     observer.start()
     try:
         while True:
