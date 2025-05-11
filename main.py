@@ -467,6 +467,7 @@ def main():
     parser.add_argument('--gmail-only', action='store_true', help='Only run Gmail scanning and downloading')
     parser.add_argument('--rename-by-date', action='store_true', help='Rename files using extracted date and category')
     parser.add_argument('--calendar-context', nargs='*', help='ICS calendar files to use for filename context')
+    parser.add_argument('--generate-travel-report', type=int, help='Generate Reisekosten Excel report for the given year')
     args = parser.parse_args()
     reviewed_ids = load_reviewed_ids()
 
@@ -532,6 +533,11 @@ def main():
                             success = True
                 if not success:
                     print("[!] All extracted links failed to download.")
+
+    if args.generate_travel_report:
+        from generate_reisekosten_excel import generate_travel_report
+        generate_travel_report(args.generate_travel_report, SORTED_DIR, CALENDAR_CONTEXT)
+        return
 
     if not args.gmail_only:
         process_dropped_invoices(rename_by_date=args.rename_by_date, calendar_context=CALENDAR_CONTEXT)
