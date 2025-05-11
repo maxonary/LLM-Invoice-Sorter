@@ -68,7 +68,7 @@ Invoice content:
         except:
             return {"anlass": "", "distance_km": 0, "type": ""}
 
-def generate_travel_report(year, sorted_dir, calendar_context, force_include=False):
+def generate_travel_report(year, sorted_dir, calendar_context, force_include=False, language='en'):
     os.makedirs(REPORTS_DIR, exist_ok=True)
     processed_count = 0
     skipped_count = 0
