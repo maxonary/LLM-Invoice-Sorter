@@ -182,6 +182,7 @@ temp_invoices/
 Invoices/
 *.csv
 *.db
+*.ics
 
 # MacOS Files
 .DS_Store
