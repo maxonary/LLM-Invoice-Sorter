@@ -180,6 +180,7 @@ token.pickle
 # Temporary files
 temp_invoices/
 Invoices/
+Reports/
 *.csv
 *.db
 *.ics
