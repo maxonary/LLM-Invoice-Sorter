@@ -310,7 +310,7 @@ def sort_file_to_category(file_path, category, text=None, rename_by_date=False, 
             day, month, year = match.groups()
             if len(year) == 2:
                 year = '20' + year
-            new_name = f"{int(day):02d}-{int(month):02d}-{year}_{category}.pdf"
+            new_name = f"{year}-{int(month):02d}-{int(day):02d}.pdf"
             filename = new_name
 
     new_path = os.path.join(dest_dir, filename)
