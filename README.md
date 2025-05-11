@@ -23,6 +23,18 @@ Only categorize PDFs dropped in temp_invoices/
 Only scan Gmail and attempt to download all invoice PDFs
 
 `python main.py --rename-by-date`  
-Rename files using the first detected date in the PDF and its category (e.g., 12-04-2024_Travel.pdf), Year-Month-Date. 
+Rename files using the first detected date in the PDF (format: Year-Month-Day).  
+If `--calendar-context` is provided, filenames will include a short event keyword from your calendar (e.g., `2024-06-13-meeting.pdf`).
 
 You can also use `--rename-by-date` with `--no-gmail` or `--gmail-only` to rename files in the temp_invoices/ folder or the downloaded Gmail PDFs.
+
+## Calendar Context (optional)
+
+You can provide one or more `.ics` calendar files using the `--calendar-context` flag to enrich file names based on your schedule.
+
+Example:
+```bash
+python main.py --rename-by-date --calendar-context calendar.ics
+```
+
+This allows the script to include contextual slugs in filenames, like `2024-06-13-kickoff.pdf` or `2024-07-01-vacation.pdf`, based on events scheduled that day.

@@ -17,6 +17,7 @@ import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from ics import Calendar
 
 def load_reviewed_ids(file_path="review_queue.csv"):
     if not os.path.exists(file_path):
@@ -39,6 +40,8 @@ if not OPENAI_API_KEY and USE_OPENAI_KEY:
     raise ValueError("OPENAI_API_KEY must be set if USE_OPENAI_KEY is True")
 
 OPENAI_MODEL = "gpt-3.5-turbo"
+
+CALENDAR_CONTEXT = {}
 
 KEYWORDS = ["RECHNUNG", "INVOICE", "BELEG"]
 START_DATE = "2023/01/01"  # format: YYYY/MM/DD or None to use TIMEFRAME
@@ -297,7 +300,7 @@ Category:
         return response['message']['content'].strip()
 
 # -------------- Sort File to Category Folder --------------
-def sort_file_to_category(file_path, category, text=None, rename_by_date=False, base_dir=SORTED_DIR):
+def sort_file_to_category(file_path, category, text=None, rename_by_date=False, base_dir=SORTED_DIR, calendar_context=None):
     category = category if category in CATEGORIES else "Other"
     dest_dir = os.path.join(base_dir, category)
     os.makedirs(dest_dir, exist_ok=True)
@@ -310,8 +313,33 @@ def sort_file_to_category(file_path, category, text=None, rename_by_date=False, 
             day, month, year = match.groups()
             if len(year) == 2:
                 year = '20' + year
-            new_name = f"{year}-{int(month):02d}-{int(day):02d}.pdf"
-            filename = new_name
+            date_key = f"{year}-{int(month):02d}-{int(day):02d}"
+            filename = f"{date_key}.pdf"
+
+            if calendar_context and date_key in calendar_context:
+                prompt = f"""
+                Suggest a short, filename-safe keyword (1–3 words, lowercase, hyphenated if needed, e.g. 'meeting', 'offsite-berlin', 'kickoff') summarizing any relevant calendar event that occurred on {date_key}, based on:
+
+                {chr(10).join('- ' + e for e in calendar_context[date_key])}
+
+                If none are relevant to the invoice, return nothing.
+                """
+                try:
+                    if USE_OPENAI_KEY:
+                        response = openai.ChatCompletion.create(
+                            model=OPENAI_MODEL,
+                            messages=[{"role": "user", "content": prompt}],
+                            max_tokens=10
+                        )
+                        suffix = response.choices[0].message['content'].strip()
+                    else:
+                        response = ollama.chat(model=MODEL, messages=[{"role": "user", "content": prompt}])
+                        suffix = response['message']['content'].strip()
+
+                    if suffix:
+                        filename = f"{date_key}-{suffix}.pdf"
+                except Exception as e:
+                    print(f"[!] Failed to fetch calendar context from LLM: {e}")
 
     new_path = os.path.join(dest_dir, filename)
     base, ext = os.path.splitext(new_path)
@@ -323,11 +351,29 @@ def sort_file_to_category(file_path, category, text=None, rename_by_date=False, 
     shutil.move(file_path, new_path)
     print(f"[→] Sorted into: {category} as {os.path.basename(new_path)}")
 
+# -------------- Calendar Context Loader --------------
+def load_calendar_context(ics_paths):
+    calendar_lookup = {}
+    for path in ics_paths:
+        if not os.path.exists(path):
+            print(f"[!] Calendar file not found: {path}")
+            continue
+        with open(path, 'r', encoding='utf-8') as f:
+            try:
+                cal = Calendar(f.read())
+                for event in cal.events:
+                    date_key = event.begin.date().isoformat()
+                    calendar_lookup.setdefault(date_key, []).append(event.name or "")
+            except Exception as e:
+                print(f"[!] Failed to parse {path}: {e}")
+    return calendar_lookup
+
 # -------------- Process Dropped Invoices --------------
 class InvoiceHandler(FileSystemEventHandler):
-    def __init__(self, rename_by_date=False):
+    def __init__(self, rename_by_date=False, calendar_context=None):
         super().__init__()
         self.rename_by_date = rename_by_date
+        self.calendar_context = calendar_context
 
     def on_any_event(self, event):
         if event.event_type not in ('created', 'moved'):
@@ -353,7 +399,7 @@ class InvoiceHandler(FileSystemEventHandler):
                 print(f"[i] Categorizing manual file: {fname}")
                 print(f"[i] Extracted text preview: {text[:100]}...")
                 category = categorize_invoice(text)
-                sort_file_to_category(file_path, category, text, self.rename_by_date)
+                sort_file_to_category(file_path, category, text, self.rename_by_date, calendar_context=self.calendar_context)
             except Exception as e:
                 print(f"[!] Error processing {fname}: {e}")
 
@@ -377,7 +423,7 @@ def clean_up_download_dir():
                 os.rmdir(folder_path)
                 print(f"[✗] Deleted empty folder: {folder_path}")
 
-def process_dropped_invoices(rename_by_date=False):
+def process_dropped_invoices(rename_by_date=False, calendar_context=None):
     print(f"\n[i] Checking existing files in {DOWNLOAD_DIR} before watching for changes...")
     for root, _, files in os.walk(DOWNLOAD_DIR):
         for file in files:
@@ -392,13 +438,13 @@ def process_dropped_invoices(rename_by_date=False):
                     print(f"[i] Categorizing manual file: {fname}")
                     print(f"[i] Extracted text preview: {text[:100]}...")
                     category = categorize_invoice(text)
-                    sort_file_to_category(file_path, category, text, rename_by_date)
+                    sort_file_to_category(file_path, category, text, rename_by_date, calendar_context=calendar_context)
                 except Exception as e:
                     print(f"[!] Error processing {fname}: {e}")
     # Clean up after initial scan
     clean_up_download_dir()
     print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs and folders using watchdog... (Press Ctrl+C to stop)")
-    event_handler = InvoiceHandler(rename_by_date=rename_by_date)
+    event_handler = InvoiceHandler(rename_by_date=rename_by_date, calendar_context=calendar_context)
     observer = Observer()
     # Set recursive=True to watch new folders dropped into DOWNLOAD_DIR
     observer.schedule(event_handler, DOWNLOAD_DIR, recursive=True)
@@ -420,8 +466,13 @@ def main():
     parser.add_argument('--no-gmail', action='store_true', help='Skip Gmail scanning and only process local PDFs')
     parser.add_argument('--gmail-only', action='store_true', help='Only run Gmail scanning and downloading')
     parser.add_argument('--rename-by-date', action='store_true', help='Rename files using extracted date and category')
+    parser.add_argument('--calendar-context', nargs='*', help='ICS calendar files to use for filename context')
     args = parser.parse_args()
     reviewed_ids = load_reviewed_ids()
+
+    global CALENDAR_CONTEXT
+    if args.calendar_context:
+        CALENDAR_CONTEXT = load_calendar_context(args.calendar_context)
 
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(SORTED_DIR, exist_ok=True)
@@ -458,7 +509,7 @@ def main():
                 print(f"[i] Categorizing file: {file_path}")
                 print(f"[i] Extracted text preview: {text[:100]}...")
                 category = categorize_invoice(text)
-                sort_file_to_category(file_path, category, text, args.rename_by_date)
+                sort_file_to_category(file_path, category, text, args.rename_by_date, calendar_context=CALENDAR_CONTEXT)
 
             links = extract_invoice_links_with_ollama(service, msg['id'])
             if links:
@@ -469,7 +520,7 @@ def main():
                         print(f"[i] Categorizing file: {file_path_from_link}")
                         print(f"[i] Extracted text preview: {text[:100]}...")
                         category = categorize_invoice(text)
-                        sort_file_to_category(file_path_from_link, category, text, args.rename_by_date)
+                        sort_file_to_category(file_path_from_link, category, text, args.rename_by_date, calendar_context=CALENDAR_CONTEXT)
                         return True
                     return False
 
@@ -483,7 +534,7 @@ def main():
                     print("[!] All extracted links failed to download.")
 
     if not args.gmail_only:
-        process_dropped_invoices(rename_by_date=args.rename_by_date)
+        process_dropped_invoices(rename_by_date=args.rename_by_date, calendar_context=CALENDAR_CONTEXT)
 
 if __name__ == '__main__':
     main()
