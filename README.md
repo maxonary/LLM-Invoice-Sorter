@@ -1,4 +1,7 @@
 # Why this script? - Gmail Invoice Sorting
+
+<img width="684" alt="Sorted Folders" src="https://github.com/user-attachments/assets/e370f52a-1680-41d6-ae8a-dda9f4ffdda1" />
+
 I didn't want to download and sort all my emails manually for the yearly invoicing, so I wrote an LLM bot script to do it for me. 
 
 Automatically fetch, categorize, rename and sort invoices from Gmail or local folders using a local LLM (via Ollama) or ChatGPT (via OpenAI API).
