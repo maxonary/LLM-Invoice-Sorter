@@ -31,27 +31,49 @@ def extract_amount(text):
         return match.group(1).replace(',', '.')
     return None
 
-def generate_llm_description(text, category, event=None):
-    prompt = f"Summarize this {category.lower()} invoice in 5–10 words for a tax report. Focus on purpose, trip, or dining context."
+
+# Unified LLM function for extracting description, distance, and type
+def generate_llm_fields(text, category, event=None):
+    prompt = f"""
+You are a tax assistant helping to analyze receipts.
+
+Task:
+1. Summarize the purpose of the expense in 5–10 words.
+2. Estimate one-way travel distance in kilometers if relevant, else return 0.
+3. Identify what category this amount belongs to (Parking, Hotel, Public Transport, Meal, Fee, etc.).
+
+Respond in JSON with keys: "anlass", "distance_km", and "type".
+
+Invoice content:
+{text}
+"""
     if event:
-        prompt += f" Event context: {event}."
-    prompt += f"\n\n{text}"
+        prompt += f"\n\nCalendar context: {event}"
     if USE_OPENAI_KEY:
         response = openai.ChatCompletion.create(
             model=OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=25
+            max_tokens=100
         )
-        return response.choices[0].message['content'].strip()
+        import json
+        try:
+            return json.loads(response.choices[0].message['content'])
+        except:
+            return {"anlass": "", "distance_km": 0, "type": ""}
     else:
         response = ollama.chat(model=MODEL, messages=[{"role": "user", "content": prompt}])
-        return response['message']['content'].strip()
+        import json
+        try:
+            return json.loads(response['message']['content'])
+        except:
+            return {"anlass": "", "distance_km": 0, "type": ""}
 
 def generate_travel_report(year, sorted_dir, calendar_context, force_include=False):
     os.makedirs(REPORTS_DIR, exist_ok=True)
-    data = []
     processed_count = 0
     skipped_count = 0
+
+    entries_by_date = {}
 
     for category in ["Travel", "Food"]:
         dir_path = os.path.join(sorted_dir, category)
@@ -72,7 +94,6 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                     y, m, d = date_from_filename.groups()
                     date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
 
-            # Handle missing date with force_include
             if not date:
                 if not force_include:
                     print(f"[!] Skipping {file}: no date found")
@@ -81,7 +102,7 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                 else:
                     date = f"{year}-01-01"
                     print(f"[!] No date found in {file}, using fallback: {date}")
-            # Handle year mismatch with force_include
+
             if not date.startswith(str(year)):
                 if not force_include:
                     print(f"[!] Skipping {file}: no matching date found for year {year}")
@@ -95,29 +116,56 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
             event = None
             if calendar_context and date in calendar_context:
                 event = ", ".join(calendar_context[date])
-
-            description = generate_llm_description(text, category, event)
-            # Estimate Verpflegungsmehraufwand based on dummy duration (assumed 10h here)
-            duration_hours = 10  # This could be extracted more precisely in future
-            if duration_hours >= 24:
-                vma = 28
-            elif duration_hours >= 8:
-                vma = 14
-            else:
-                vma = 0
-            processed_count += 1
-            data.append({
+            # Unified LLM call
+            llm_data = generate_llm_fields(text, category, event)
+            type_hint = llm_data.get("type", "").lower()
+            entry = {
                 "Datum": date,
-                "Ort": "",  # Optional – can be extracted later if needed
-                "Anlass": event or "",
-                "Kategorie": category,
-                "Beschreibung": description,
-                "Betrag (€)": amount,
-                "Verpflegungsmehraufwand (€)": vma,
-                "Dateipfad": os.path.relpath(path)
-            })
+                "Ort": "",
+                "Anlass": llm_data.get("anlass", event or ""),
+                "Dauer in Std.": 10 if category == "Travel" else "",
+                "(Teil-) Anfahrt in km": llm_data.get("distance_km", "") if category == "Travel" else "",
+                "Parken": amount if "park" in type_hint else "",
+                "Hotel": amount if "hotel" in type_hint else "",
+                "Zug, Flug, Taxi, ÖPNV": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
+                "Bewirtung": amount if category == "Food" else "",
+                "Gebühr": amount if "fee" in type_hint else "",
+                "Dateipfade": os.path.relpath(path)
+            }
+            entries_by_date.setdefault(date, []).append(entry)
+            processed_count += 1
 
-    df = pd.DataFrame(data)
+    # Filter and link only days that include Travel (based on new structure: use "Dauer in Std." as indicator)
+    filtered_entries = {}
+    for date, entries in entries_by_date.items():
+        travel_entry = next((e for e in entries if e.get("Dauer in Std.") == 10), None)
+        if not travel_entry:
+            print(f"[!] Skipping {date}: no Travel entry found")
+            continue
+        for entry in entries:
+            if entry.get("Bewirtung"):
+                entry["Anlass"] = travel_entry["Anlass"]
+                entry["Ort"] = travel_entry["Ort"]
+        filtered_entries[date] = entries
+
+    # Flatten, sort, and write to Excel
+    sorted_entries = []
+    for date in sorted(filtered_entries.keys()):
+        daily_entries = sorted(filtered_entries[date], key=lambda e: e.get("Dauer in Std.", "") != 10)
+        if not daily_entries:
+            continue
+        merged = daily_entries[0]
+        for extra in daily_entries[1:]:
+            for key in ["Parken", "Hotel", "Zug, Flug, Taxi, ÖPNV", "Bewirtung", "Gebühr"]:
+                if extra.get(key):
+                    try:
+                        merged[key] = str(float(merged.get(key, 0)) + float(extra[key]))
+                    except:
+                        merged[key] = extra[key]
+            merged["Dateipfade"] += f"\n{extra['Dateipfade']}"
+        sorted_entries.append(merged)
+
+    df = pd.DataFrame(sorted_entries)
     out_path = os.path.join(REPORTS_DIR, f"reisekosten_{year}.xlsx")
     df.to_excel(out_path, index=False)
     print(f"[✓] Travel report generated: {out_path}")
