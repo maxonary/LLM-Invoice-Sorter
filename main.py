@@ -284,15 +284,37 @@ Category:
         return response['message']['content'].strip()
 
 # -------------- Sort File to Category Folder --------------
-def sort_file_to_category(file_path, category, base_dir=SORTED_DIR):
+def sort_file_to_category(file_path, category, text=None, rename_by_date=False, base_dir=SORTED_DIR):
     category = category if category in CATEGORIES else "Other"
     dest_dir = os.path.join(base_dir, category)
     os.makedirs(dest_dir, exist_ok=True)
-    shutil.move(file_path, os.path.join(dest_dir, os.path.basename(file_path)))
-    print(f"[→] Sorted into: {category}")
+
+    filename = os.path.basename(file_path)
+
+    if rename_by_date and text:
+        match = re.search(r'(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})', text)
+        if match:
+            day, month, year = match.groups()
+            if len(year) == 2:
+                year = '20' + year
+            new_name = f"{int(day):02d}-{int(month):02d}-{year}_{category}.pdf"
+            filename = new_name
+
+    new_path = os.path.join(dest_dir, filename)
+    base, ext = os.path.splitext(new_path)
+    counter = 1
+    while os.path.exists(new_path):
+        new_path = f"{base}_{counter}{ext}"
+        counter += 1
+
+    shutil.move(file_path, new_path)
+    print(f"[→] Sorted into: {category} as {os.path.basename(new_path)}")
 
 # -------------- Process Dropped Invoices --------------
 class InvoiceHandler(FileSystemEventHandler):
+    def __init__(self, rename_by_date=False):
+        super().__init__()
+        self.rename_by_date = rename_by_date
     def on_any_event(self, event):
         # Only process file creation or movement into the directory
         if event.event_type not in ('created', 'moved'):
@@ -310,13 +332,13 @@ class InvoiceHandler(FileSystemEventHandler):
                 print(f"[i] Categorizing manual file: {fname}")
                 print(f"[i] Extracted text preview: {text[:100]}...")
                 category = categorize_invoice(text)
-                sort_file_to_category(file_path, category)
+                sort_file_to_category(file_path, category, text, self.rename_by_date)
             except Exception as e:
                 print(f"[!] Error processing {fname}: {e}")
 
-def process_dropped_invoices():
+def process_dropped_invoices(rename_by_date=False):
     print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs using watchdog... (Press Ctrl+C to stop)")
-    event_handler = InvoiceHandler()
+    event_handler = InvoiceHandler(rename_by_date=rename_by_date)
     observer = Observer()
     observer.schedule(event_handler, DOWNLOAD_DIR, recursive=False)
     observer.start()
@@ -333,6 +355,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-gmail', action='store_true', help='Skip Gmail scanning and only process local PDFs')
     parser.add_argument('--gmail-only', action='store_true', help='Only run Gmail scanning and downloading')
+    parser.add_argument('--rename-by-date', action='store_true', help='Rename files using extracted date and category')
     args = parser.parse_args()
     reviewed_ids = load_reviewed_ids()
 
@@ -371,7 +394,7 @@ def main():
                 print(f"[i] Categorizing file: {file_path}")
                 print(f"[i] Extracted text preview: {text[:100]}...")
                 category = categorize_invoice(text)
-                sort_file_to_category(file_path, category)
+                sort_file_to_category(file_path, category, text, args.rename_by_date)
 
             links = extract_invoice_links_with_ollama(service, msg['id'])
             if links:
@@ -382,7 +405,7 @@ def main():
                         print(f"[i] Categorizing file: {file_path_from_link}")
                         print(f"[i] Extracted text preview: {text[:100]}...")
                         category = categorize_invoice(text)
-                        sort_file_to_category(file_path_from_link, category)
+                        sort_file_to_category(file_path_from_link, category, text, args.rename_by_date)
                         return True
                     return False
 
@@ -396,7 +419,7 @@ def main():
                     print("[!] All extracted links failed to download.")
 
     if not args.gmail_only:
-        process_dropped_invoices()
+        process_dropped_invoices(rename_by_date=args.rename_by_date)
 
 if __name__ == '__main__':
     main()
