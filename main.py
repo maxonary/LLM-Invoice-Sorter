@@ -463,8 +463,8 @@ def process_dropped_invoices(rename_by_date=False, calendar_context=None):
 # -------------- MAIN WORKFLOW --------------
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--no-gmail', action='store_true', help='Skip Gmail scanning and only process local PDFs')
-    parser.add_argument('--gmail-only', action='store_true', help='Only run Gmail scanning and downloading')
+    parser.add_argument('--scan-gmail', action='store_true', help='Enable scanning Gmail for invoice attachments and links')
+    parser.add_argument('--process-local', action='store_true', help='Enable processing of local PDFs from temp_invoices/')
     parser.add_argument('--rename-by-date', action='store_true', help='Rename files using extracted date and category')
     parser.add_argument('--calendar-context', nargs='*', help='ICS calendar files to use for filename context')
     parser.add_argument('--generate-travel-report', type=int, help='Generate Reisekosten Excel report for the given year')
@@ -478,7 +478,7 @@ def main():
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(SORTED_DIR, exist_ok=True)
 
-    if not args.no_gmail:
+    if args.scan_gmail:
         service = gmail_authenticate()
         search_query = build_search_query(KEYWORDS, TIMEFRAME, START_DATE)
         print(f"[i] Gmail search query: {search_query}")
@@ -539,7 +539,7 @@ def main():
         generate_travel_report(args.generate_travel_report, SORTED_DIR, CALENDAR_CONTEXT)
         return
 
-    if not args.gmail_only:
+    if args.process_local:
         process_dropped_invoices(rename_by_date=args.rename_by_date, calendar_context=CALENDAR_CONTEXT)
 
 if __name__ == '__main__':
