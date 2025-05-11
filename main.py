@@ -358,6 +358,23 @@ class InvoiceHandler(FileSystemEventHandler):
                 print(f"[!] Error processing {fname}: {e}")
 
 def process_dropped_invoices(rename_by_date=False):
+    print(f"\n[i] Checking existing files in {DOWNLOAD_DIR} before watching for changes...")
+    for root, _, files in os.walk(DOWNLOAD_DIR):
+        for file in files:
+            if file.lower().endswith('.pdf'):
+                file_path = os.path.join(root, file)
+                if not os.path.exists(file_path):
+                    continue
+                fname = os.path.basename(file_path)
+                print(f"[i] Found existing file: {fname}")
+                try:
+                    text = extract_text_from_pdf(file_path)
+                    print(f"[i] Categorizing manual file: {fname}")
+                    print(f"[i] Extracted text preview: {text[:100]}...")
+                    category = categorize_invoice(text)
+                    sort_file_to_category(file_path, category, text, rename_by_date)
+                except Exception as e:
+                    print(f"[!] Error processing {fname}: {e}")
     print(f"\n[i] Watching {DOWNLOAD_DIR} for new PDFs and folders using watchdog... (Press Ctrl+C to stop)")
     event_handler = InvoiceHandler(rename_by_date=rename_by_date)
     observer = Observer()
