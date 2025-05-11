@@ -43,7 +43,14 @@ OPENAI_MODEL = "gpt-3.5-turbo"
 KEYWORDS = ["RECHNUNG", "INVOICE", "BELEG"]
 START_DATE = "2023/01/01"  # format: YYYY/MM/DD or None to use TIMEFRAME
 TIMEFRAME = "1y" # options: 1d, 7d, 30d, 1y etc.
-CATEGORIES = ["Travel", "Utilities", "Software", "Hardware" "Office Supplies", "Food", "Lifestyle", "Other"]
+CATEGORIES = [
+    "Work Equipment",       # Tools, office supplies, hardware for work
+    "Insurance",            # Health, liability, or travel insurance
+    "Travel Expenses",      # Train tickets, flights, taxis, parking, hotel, carsharing
+    "Food",                 # Meals, restaurants
+    "Lifestyle",            # Non-deductible: entertainment, subscriptions, etc.
+    "Other"                 # Uncategorized or unclear
+]
 BLACKLISTED_SENDERS = [
     "noreply@paypal.com",
     "service@paypal.de",
@@ -262,8 +269,14 @@ def download_pdf_from_url(url, save_dir, subject=None, message_id=None):
 # -------------- Categorize Invoice --------------
 def categorize_invoice(text, model=MODEL):
     prompt = f"""
-You are an invoice assistant. Categorize this invoice into one of:
-{", ".join(CATEGORIES)}.
+You are an invoice assistant. Categorize this invoice into one of the following categories:
+
+- Work Equipment: Tools, office supplies, hardware purchased for work
+- Insurance: Health, liability, or travel insurance
+- Travel Expenses: Train tickets, flights, taxis, parking, hotel, carsharing, etc.
+- Food: Meals, restaurant receipts
+- Lifestyle: Non-deductible items such as entertainment, personal subscriptions, hobbies
+- Other: Anything that does not clearly belong to the above
 
 Only respond with one category name.
 
