@@ -273,9 +273,9 @@ You are an invoice assistant. Categorize this invoice into one of the following 
 
 - Work Equipment: Software Tools, office supplies, hardware purchased for work
 - Insurance: Health, liability, or travel insurance
-- Travel: Train tickets, flights, taxis, parking, hotel, carsharing, etc.
-- Food: Meals, restaurant receipts
-- Lifestyle: Non-deductible items such as entertainment, personal subscriptions, hobbies
+- Travel: Train tickets, flights, taxis, parking, hotel, carsharing, chauffeur, etc.
+- Food: Meals, restaurant receipts (Keywords like "food", "restaurant", "meal", "catering", "bbq", "delivery", "bowl", "chicken", "pizza", "sushi, "burger", "snack", "drink", "beverage", "cafe", "breakfast", "lunch", "dinner")
+- Lifestyle: Non-deductible items such as entertainment, personal subscriptions, hobbies, etc. (Keywords like "lifestyle", "subscription", "entertainment", "hobby", "personal", "gift", "clothing", "fashion", "accessory", "jewelry")
 - Other: Anything that does not clearly belong to the above
 
 Only respond with one category name.
