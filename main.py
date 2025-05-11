@@ -468,7 +468,16 @@ def main():
     parser.add_argument('--rename-by-date', action='store_true', help='Rename files using extracted date and category')
     parser.add_argument('--calendar-context', nargs='*', help='ICS calendar files to use for filename context')
     parser.add_argument('--generate-travel-report', type=int, help='Generate Reisekosten Excel report for the given year')
+    parser.add_argument('--full-run', action='store_true', help='Run Gmail scan, local processing, and travel report generation')
     args = parser.parse_args()
+
+    # If --full-run is used, enable all three modes
+    if args.full_run:
+        args.scan_gmail = True
+        args.process_local = True
+        if not args.generate_travel_report:
+            from datetime import datetime
+            args.generate_travel_report = datetime.now().year
     reviewed_ids = load_reviewed_ids()
 
     global CALENDAR_CONTEXT
