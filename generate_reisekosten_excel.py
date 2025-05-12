@@ -73,6 +73,15 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
     processed_count = 0
     skipped_count = 0
 
+    # 1. Insert ExcelWriter setup at function start after os.makedirs
+    from openpyxl import load_workbook
+    from pandas import ExcelWriter
+    import tempfile
+
+    excel_temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+    writer = ExcelWriter(excel_temp_file.name, engine='openpyxl')
+    current_row = 0
+
     entries_by_date = {}
 
     # Default to English column names
@@ -149,8 +158,11 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                 entry["Location"] = travel_entry["Location"]
         filtered_entries[date] = entries
 
-    # Flatten, sort, and write to Excel
-    sorted_entries = []
+    # 2. Write directly to Excel as rows are processed
+    columns = [
+        "Date", "Location", "Purpose", "Duration (hrs)", "Distance (km)",
+        "Parking", "Hotel", "Transport", "Meal", "Fee", "File paths"
+    ]
     for date in sorted(filtered_entries.keys()):
         daily_entries = sorted(filtered_entries[date], key=lambda e: e.get("Duration (hrs)", "") != 10)
         if not daily_entries:
@@ -164,39 +176,18 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                     except:
                         merged[key] = extra[key]
             merged["File paths"] += f"\n{extra['File paths']}"
-        sorted_entries.append(merged)
+        df_row = pd.DataFrame([merged], columns=columns)
+        df_row.to_excel(writer, index=False, header=(current_row == 0), startrow=current_row)
+        current_row += 1
 
-    df = pd.DataFrame(sorted_entries)
-
-    # Language-dependent column renaming and output path
-    language = locals().get('language', 'en')
-    import inspect
-    frame = inspect.currentframe()
-    while frame:
-        if 'language' in frame.f_locals:
-            language = frame.f_locals['language']
-            break
-        frame = frame.f_back
+    # 3. Finalize ExcelWriter and print output
+    writer.close()
     if language == 'de':
-        column_mapping = {
-            "Date": "Datum",
-            "Location": "Ort",
-            "Purpose": "Anlass",
-            "Duration (hrs)": "Dauer in Std.",
-            "Distance (km)": "(Teil-) Anfahrt in km",
-            "Parking": "Parken",
-            "Hotel": "Hotel",
-            "Transport": "Zug, Flug, Taxi, ÖPNV",
-            "Meal": "Bewirtung",
-            "Fee": "Gebühr",
-            "File paths": "Dateipfade"
-        }
-        df.rename(columns=column_mapping, inplace=True)
-        out_path = os.path.join(REPORTS_DIR, f"reisekosten_{year}.xlsx")
+        final_path = os.path.join(REPORTS_DIR, f"reisekosten_{year}_de.xlsx")
     else:
-        out_path = os.path.join(REPORTS_DIR, f"travel_report_{year}_en.xlsx")
-
-    df.to_excel(out_path, index=False)
-    print(f"[✓] Travel report generated: {out_path}")
+        final_path = os.path.join(REPORTS_DIR, f"travel_report_{year}_en.xlsx")
+    import shutil
+    shutil.move(excel_temp_file.name, final_path)
+    print(f"[✓] Travel report generated: {final_path}")
     print(f"[✓] Processed entries: {processed_count}")
     print(f"[•] Skipped files: {skipped_count}")
