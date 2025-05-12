@@ -97,7 +97,7 @@ Invoice content:
         except:
             return {"anlass": "", "distance_km": 0, "type": ""}
 
-def generate_travel_report(year, sorted_dir, calendar_context, force_include=False, language='en'):
+def generate_travel_report(year, sorted_dir, calendar_context, force_include=False, language='en', use_cache=False, use_parallel=False):
     os.makedirs(REPORTS_DIR, exist_ok=True)
     processed_count = 0
     skipped_count = 0
@@ -142,13 +142,14 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
         if calendar_context and date in calendar_context:
             event = ", ".join(calendar_context[date])
         key = cache_key(text, language)
-        if key in LLM_CACHE:
+        if use_cache and key in LLM_CACHE:
             llm_data = LLM_CACHE[key]
         else:
             llm_data = generate_llm_fields(text, category, event, language)
-            LLM_CACHE[key] = llm_data
-            with open(LLM_CACHE_FILE, "w") as f:
-                json.dump(LLM_CACHE, f)
+            if use_cache:
+                LLM_CACHE[key] = llm_data
+                with open(LLM_CACHE_FILE, "w") as f:
+                    json.dump(LLM_CACHE, f)
         type_hint = llm_data.get("type", "").lower()
         entry = {
             "date": date,
@@ -165,8 +166,30 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
         }
         return (date, entry), None
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = []
+    if use_parallel:
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = []
+            for category in ["Travel", "Food"]:
+                dir_path = os.path.join(sorted_dir, category)
+                if not os.path.isdir(dir_path):
+                    continue
+                for file in os.listdir(dir_path):
+                    if not file.lower().endswith(".pdf"):
+                        continue
+                    path = os.path.join(dir_path, file)
+                    futures.append(executor.submit(process_invoice, path, file, category, year, calendar_context, force_include, language))
+
+            for future in as_completed(futures):
+                result, warning = future.result()
+                if warning:
+                    print(warning)
+                    skipped_count += 1
+                    continue
+                if result:
+                    date, entry = result
+                    entries_by_date.setdefault(date, []).append(entry)
+                    processed_count += 1
+    else:
         for category in ["Travel", "Food"]:
             dir_path = os.path.join(sorted_dir, category)
             if not os.path.isdir(dir_path):
@@ -175,18 +198,15 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                 if not file.lower().endswith(".pdf"):
                     continue
                 path = os.path.join(dir_path, file)
-                futures.append(executor.submit(process_invoice, path, file, category, year, calendar_context, force_include, language))
-
-        for future in as_completed(futures):
-            result, warning = future.result()
-            if warning:
-                print(warning)
-                skipped_count += 1
-                continue
-            if result:
-                date, entry = result
-                entries_by_date.setdefault(date, []).append(entry)
-                processed_count += 1
+                result, warning = process_invoice(path, file, category, year, calendar_context, force_include, language)
+                if warning:
+                    print(warning)
+                    skipped_count += 1
+                    continue
+                if result:
+                    date, entry = result
+                    entries_by_date.setdefault(date, []).append(entry)
+                    processed_count += 1
 
     # Filter and link only days that include Travel (based on new structure: use "duration" as indicator)
     filtered_entries = {}

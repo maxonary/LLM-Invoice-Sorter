@@ -470,6 +470,8 @@ def main():
     parser.add_argument('--generate-travel-report', type=int, help='Generate Reisekosten Excel report for the given year')
     parser.add_argument('--full-run', action='store_true', help='Run Gmail scan, local processing, and travel report generation')
     parser.add_argument('--lang', default='en', choices=['de', 'en'], help='Language for Reisekosten report export (en or de)')
+    parser.add_argument('--use-cache', action='store_true', help='Enable LLM response caching')
+    parser.add_argument('--parallel', action='store_true', help='Enable multithreaded invoice processing')
     args = parser.parse_args()
 
     # If --full-run is used, enable all three modes
@@ -546,7 +548,14 @@ def main():
 
     if args.generate_travel_report:
         from generate_reisekosten_excel import generate_travel_report
-        generate_travel_report(args.generate_travel_report, SORTED_DIR, CALENDAR_CONTEXT, language=args.lang)
+        generate_travel_report(
+            args.generate_travel_report,
+            SORTED_DIR,
+            CALENDAR_CONTEXT,
+            language=args.lang,
+            use_cache=args.use_cache,
+            use_parallel=args.parallel
+        )
         return
 
     if args.process_local:
