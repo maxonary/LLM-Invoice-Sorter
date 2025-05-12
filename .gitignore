@@ -184,6 +184,7 @@ Reports/
 *.csv
 *.db
 *.ics
+*cache.json
 
 # MacOS Files
 .DS_Store

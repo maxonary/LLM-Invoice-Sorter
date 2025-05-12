@@ -4,12 +4,24 @@ import fitz
 import openai
 import ollama
 import pandas as pd
+import hashlib
+import json
 
 REPORTS_DIR = "Reports"
 MODEL = "mistral"
 USE_OPENAI_KEY = os.getenv("USE_OPENAI", False)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = "gpt-3.5-turbo"
+
+LLM_CACHE_FILE = "llm_cache.json"
+try:
+    with open(LLM_CACHE_FILE, "r") as f:
+        LLM_CACHE = json.load(f)
+except FileNotFoundError:
+    LLM_CACHE = {}
+
+def cache_key(text, language):
+    return hashlib.sha256((text + language).encode()).hexdigest()
 
 def get_column_mapping(language):
     return {
@@ -144,8 +156,15 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
             event = None
             if calendar_context and date in calendar_context:
                 event = ", ".join(calendar_context[date])
-            # Unified LLM call
-            llm_data = generate_llm_fields(text, category, event, language)
+            # Unified LLM call with caching
+            key = cache_key(text, language)
+            if key in LLM_CACHE:
+                llm_data = LLM_CACHE[key]
+            else:
+                llm_data = generate_llm_fields(text, category, event, language)
+                LLM_CACHE[key] = llm_data
+                with open(LLM_CACHE_FILE, "w") as f:
+                    json.dump(LLM_CACHE, f)
             type_hint = llm_data.get("type", "").lower()
             entry = {
                 "date": date,
