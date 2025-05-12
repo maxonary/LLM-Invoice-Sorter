@@ -164,6 +164,7 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
             "fee": amount if "fee" in type_hint else "",
             "file_paths": os.path.relpath(path)
         }
+        print(f"[•] Processed {file} ({category}) → Date: {date}")
         return (date, entry), None
 
     if use_parallel:
@@ -180,7 +181,12 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                     futures.append(executor.submit(process_invoice, path, file, category, year, calendar_context, force_include, language))
 
             for future in as_completed(futures):
-                result, warning = future.result()
+                try:
+                    result, warning = future.result()
+                except Exception as e:
+                    print(f"[!] Threaded processing error: {e}")
+                    skipped_count += 1
+                    continue
                 if warning:
                     print(warning)
                     skipped_count += 1
@@ -220,6 +226,9 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
                 entry["purpose"] = travel_entry["purpose"]
                 entry["location"] = travel_entry["location"]
         filtered_entries[date] = entries
+
+    if not filtered_entries:
+        print("[!] No valid travel entries found. Report will be empty.")
 
     # 2. Write directly to Excel as rows are processed
     for date in sorted(filtered_entries.keys()):
