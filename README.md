@@ -40,6 +40,16 @@ python main.py --generate-travel-report 2024 --lang de
 Generates the same report with **German** column headers.
 
 ```bash
+python main.py --generate-travel-report 2024 --lang en --use-cache --parallel
+```
+Enables caching of LLM results and multi-threaded processing to speed up report generation.
+
+### Optional Flags
+
+- `--use-cache`: Saves LLM responses to disk and reuses them to avoid duplicate API or model calls.
+- `--parallel`: Uses multi-threading to process invoices faster (especially helpful for many PDFs).
+
+```bash
 python main.py --full-run --calendar-context calendar.ics
 ```
 Runs a full workflow: Gmail scan, local invoice processing, and travel report generation with optional calendar context.
