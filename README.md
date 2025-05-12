@@ -6,7 +6,7 @@ I didn't want to download and sort all my emails manually for the yearly invoici
 
 Automatically fetch, categorize, rename and sort invoices from Gmail or local folders using a local LLM (via Ollama) or ChatGPT (via OpenAI API).
 
-Make sure to download your Gmail OAuth 2.0 Credentials Json from your Google Cloud Console after enabling the Gmail API. 
+Generate Excel travel reports summarizing travel-related expenses (trips and meals) for a given year. The output supports both English and German column headers.
 
 ## Installing 
 Install dependencies into a venv with UV. Make sure to have UV installed.
@@ -14,6 +14,8 @@ Install dependencies into a venv with UV. Make sure to have UV installed.
 uv sync
 ```
 Then enable the venv.
+
+Make sure to download your Gmail OAuth 2.0 Credentials Json from your Google Cloud Console after enabling the Gmail API. This has to be placed in the `credentials.json` file.
 
 ## Running
 
@@ -28,9 +30,14 @@ python main.py --process-local
 Processes and sorts local PDFs dropped into `temp_invoices/`.
 
 ```bash
-python main.py --generate-travel-report 2024
+python main.py --generate-travel-report 2024 --lang en
 ```
-Generates a travel expense report (Reisekosten) for the given year based on categorized PDFs.
+Generates a travel expense report for the given year with **English** column headers.
+
+```bash
+python main.py --generate-travel-report 2024 --lang de
+```
+Generates the same report with **German** column headers.
 
 ```bash
 python main.py --full-run --calendar-context calendar.ics
