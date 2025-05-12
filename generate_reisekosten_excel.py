@@ -11,6 +11,21 @@ USE_OPENAI_KEY = os.getenv("USE_OPENAI", False)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = "gpt-3.5-turbo"
 
+def get_column_mapping(language):
+    return {
+        "date": "Datum" if language == "de" else "Date",
+        "location": "Ort" if language == "de" else "Location",
+        "purpose": "Anlass" if language == "de" else "Purpose",
+        "duration": "Dauer in Std." if language == "de" else "Duration (hrs)",
+        "distance_km": "(Teil-) Anfahrt in km" if language == "de" else "Distance (km)",
+        "parking": "Parken" if language == "de" else "Parking",
+        "hotel": "Hotel",
+        "transport": "Zug, Flug, Taxi, ÖPNV" if language == "de" else "Transport",
+        "meal": "Bewirtung" if language == "de" else "Meal",
+        "fee": "Gebühr" if language == "de" else "Fee",
+        "file_paths": "Dateipfade" if language == "de" else "File paths"
+    }
+
 if USE_OPENAI_KEY and OPENAI_API_KEY:
     openai.api_key = OPENAI_API_KEY
 
@@ -33,7 +48,7 @@ def extract_amount(text):
 
 
 # Unified LLM function for extracting description, distance, and type
-def generate_llm_fields(text, category, event=None):
+def generate_llm_fields(text, category, event=None, language='en'):
     prompt = f"""
 You are a tax assistant helping to analyze receipts.
 
@@ -43,6 +58,7 @@ Task:
 3. Identify what category this amount belongs to (Parking, Hotel, Public Transport, Meal, Fee, etc.).
 
 Respond in JSON with keys: "anlass", "distance_km", and "type".
+Respond in {{"German" if language == "de" else "English"}}.
 
 Invoice content:
 {text}
@@ -84,7 +100,9 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
 
     entries_by_date = {}
 
-    # Default to English column names
+    column_map = get_column_mapping(language)
+    columns = list(column_map.values())
+
     for category in ["Travel", "Food"]:
         dir_path = os.path.join(sorted_dir, category)
         if not os.path.isdir(dir_path):
@@ -127,56 +145,53 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
             if calendar_context and date in calendar_context:
                 event = ", ".join(calendar_context[date])
             # Unified LLM call
-            llm_data = generate_llm_fields(text, category, event)
+            llm_data = generate_llm_fields(text, category, event, language)
             type_hint = llm_data.get("type", "").lower()
             entry = {
-                "Date": date,
-                "Location": "",
-                "Purpose": llm_data.get("anlass", event or ""),
-                "Duration (hrs)": 10 if category == "Travel" else "",
-                "Distance (km)": llm_data.get("distance_km", "") if category == "Travel" else "",
-                "Parking": amount if "park" in type_hint else "",
-                "Hotel": amount if "hotel" in type_hint else "",
-                "Transport": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
-                "Meal": amount if category == "Food" else "",
-                "Fee": amount if "fee" in type_hint else "",
-                "File paths": os.path.relpath(path)
+                "date": date,
+                "location": "",
+                "purpose": llm_data.get("anlass", event or ""),
+                "duration": 10 if category == "Travel" else "",
+                "distance_km": llm_data.get("distance_km", "") if category == "Travel" else "",
+                "parking": amount if "park" in type_hint else "",
+                "hotel": amount if "hotel" in type_hint else "",
+                "transport": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
+                "meal": amount if category == "Food" else "",
+                "fee": amount if "fee" in type_hint else "",
+                "file_paths": os.path.relpath(path)
             }
             entries_by_date.setdefault(date, []).append(entry)
             processed_count += 1
 
-    # Filter and link only days that include Travel (based on new structure: use "Duration (hrs)" as indicator)
+    # Filter and link only days that include Travel (based on new structure: use "duration" as indicator)
     filtered_entries = {}
     for date, entries in entries_by_date.items():
-        travel_entry = next((e for e in entries if e.get("Duration (hrs)") == 10), None)
+        travel_entry = next((e for e in entries if e.get("duration") == 10), None)
         if not travel_entry:
             print(f"[!] Skipping {date}: no Travel entry found")
             continue
         for entry in entries:
-            if entry.get("Meal"):
-                entry["Purpose"] = travel_entry["Purpose"]
-                entry["Location"] = travel_entry["Location"]
+            if entry.get("meal"):
+                entry["purpose"] = travel_entry["purpose"]
+                entry["location"] = travel_entry["location"]
         filtered_entries[date] = entries
 
     # 2. Write directly to Excel as rows are processed
-    columns = [
-        "Date", "Location", "Purpose", "Duration (hrs)", "Distance (km)",
-        "Parking", "Hotel", "Transport", "Meal", "Fee", "File paths"
-    ]
     for date in sorted(filtered_entries.keys()):
-        daily_entries = sorted(filtered_entries[date], key=lambda e: e.get("Duration (hrs)", "") != 10)
+        # sort: travel entry (duration==10) first
+        daily_entries = sorted(filtered_entries[date], key=lambda e: e.get("duration", "") != 10)
         if not daily_entries:
             continue
         merged = daily_entries[0]
         for extra in daily_entries[1:]:
-            for key in ["Parking", "Hotel", "Transport", "Meal", "Fee"]:
+            for key in ["parking", "hotel", "transport", "meal", "fee"]:
                 if extra.get(key):
                     try:
                         merged[key] = str(float(merged.get(key, 0)) + float(extra[key]))
                     except:
                         merged[key] = extra[key]
-            merged["File paths"] += f"\n{extra['File paths']}"
-        df_row = pd.DataFrame([merged], columns=columns)
+            merged["file_paths"] += f"\n{extra['file_paths']}"
+        df_row = pd.DataFrame([{column_map[k]: v for k, v in merged.items()}], columns=columns)
         df_row.to_excel(writer, index=False, header=(current_row == 0), startrow=current_row)
         current_row += 1
 
