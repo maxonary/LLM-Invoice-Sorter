@@ -6,6 +6,7 @@ import ollama
 import pandas as pd
 import hashlib
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 REPORTS_DIR = "Reports"
 MODEL = "mistral"
@@ -115,72 +116,77 @@ def generate_travel_report(year, sorted_dir, calendar_context, force_include=Fal
     column_map = get_column_mapping(language)
     columns = list(column_map.values())
 
-    for category in ["Travel", "Food"]:
-        dir_path = os.path.join(sorted_dir, category)
-        if not os.path.isdir(dir_path):
-            continue
+    def process_invoice(path, file, category, year, calendar_context, force_include, language):
+        text = extract_text_from_pdf(path)
+        date = extract_date(text)
+        if not date:
+            date_from_filename = re.search(r'(\d{4})[.\-_](\d{1,2})[.\-_](\d{1,2})', file)
+            if date_from_filename:
+                y, m, d = date_from_filename.groups()
+                date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
 
-        for file in os.listdir(dir_path):
-            print(f"[•] Checking file: {file} in category: {category}")
-            if not file.lower().endswith(".pdf"):
-                continue
-
-            path = os.path.join(dir_path, file)
-            text = extract_text_from_pdf(path)
-            date = extract_date(text)
-            if not date:
-                date_from_filename = re.search(r'(\d{4})[.\-_](\d{1,2})[.\-_](\d{1,2})', file)
-                if date_from_filename:
-                    y, m, d = date_from_filename.groups()
-                    date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
-
-            if not date:
-                if not force_include:
-                    print(f"[!] Skipping {file}: no date found")
-                    skipped_count += 1
-                    continue
-                else:
-                    date = f"{year}-01-01"
-                    print(f"[!] No date found in {file}, using fallback: {date}")
-
-            if not date.startswith(str(year)):
-                if not force_include:
-                    print(f"[!] Skipping {file}: no matching date found for year {year}")
-                    skipped_count += 1
-                    continue
-                else:
-                    print(f"[!] Date in {file} does not match year {year}, using fallback: {year}-01-01")
-                    date = f"{year}-01-01"
-
-            amount = extract_amount(text) or ""
-            event = None
-            if calendar_context and date in calendar_context:
-                event = ", ".join(calendar_context[date])
-            # Unified LLM call with caching
-            key = cache_key(text, language)
-            if key in LLM_CACHE:
-                llm_data = LLM_CACHE[key]
+        if not date:
+            if not force_include:
+                return None, f"[!] Skipping {file}: no date found"
             else:
-                llm_data = generate_llm_fields(text, category, event, language)
-                LLM_CACHE[key] = llm_data
-                with open(LLM_CACHE_FILE, "w") as f:
-                    json.dump(LLM_CACHE, f)
-            type_hint = llm_data.get("type", "").lower()
-            entry = {
-                "date": date,
-                "location": "",
-                "purpose": llm_data.get("anlass", event or ""),
-                "duration": 10 if category == "Travel" else "",
-                "distance_km": llm_data.get("distance_km", "") if category == "Travel" else "",
-                "parking": amount if "park" in type_hint else "",
-                "hotel": amount if "hotel" in type_hint else "",
-                "transport": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
-                "meal": amount if category == "Food" else "",
-                "fee": amount if "fee" in type_hint else "",
-                "file_paths": os.path.relpath(path)
-            }
-            entries_by_date.setdefault(date, []).append(entry)
-            processed_count += 1
+                date = f"{year}-01-01"
+
+        if not date.startswith(str(year)):
+            if not force_include:
+                return None, f"[!] Skipping {file}: no matching date found for year {year}"
+            else:
+                date = f"{year}-01-01"
+
+        amount = extract_amount(text) or ""
+        event = None
+        if calendar_context and date in calendar_context:
+            event = ", ".join(calendar_context[date])
+        key = cache_key(text, language)
+        if key in LLM_CACHE:
+            llm_data = LLM_CACHE[key]
+        else:
+            llm_data = generate_llm_fields(text, category, event, language)
+            LLM_CACHE[key] = llm_data
+            with open(LLM_CACHE_FILE, "w") as f:
+                json.dump(LLM_CACHE, f)
+        type_hint = llm_data.get("type", "").lower()
+        entry = {
+            "date": date,
+            "location": "",
+            "purpose": llm_data.get("anlass", event or ""),
+            "duration": 10 if category == "Travel" else "",
+            "distance_km": llm_data.get("distance_km", "") if category == "Travel" else "",
+            "parking": amount if "park" in type_hint else "",
+            "hotel": amount if "hotel" in type_hint else "",
+            "transport": amount if ("transport" in type_hint or "taxi" in type_hint or "bahn" in type_hint) else "",
+            "meal": amount if category == "Food" else "",
+            "fee": amount if "fee" in type_hint else "",
+            "file_paths": os.path.relpath(path)
+        }
+        return (date, entry), None
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = []
+        for category in ["Travel", "Food"]:
+            dir_path = os.path.join(sorted_dir, category)
+            if not os.path.isdir(dir_path):
+                continue
+            for file in os.listdir(dir_path):
+                if not file.lower().endswith(".pdf"):
+                    continue
+                path = os.path.join(dir_path, file)
+                futures.append(executor.submit(process_invoice, path, file, category, year, calendar_context, force_include, language))
+
+        for future in as_completed(futures):
+            result, warning = future.result()
+            if warning:
+                print(warning)
+                skipped_count += 1
+                continue
+            if result:
+                date, entry = result
+                entries_by_date.setdefault(date, []).append(entry)
+                processed_count += 1
 
     # Filter and link only days that include Travel (based on new structure: use "duration" as indicator)
     filtered_entries = {}
